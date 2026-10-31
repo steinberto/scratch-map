@@ -2,7 +2,7 @@
 //
 // IMPORTANT when you publish a new version: change VERSION below (e.g. to "v2", "v3"...).
 // That's how installed copies notice there's an update.
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE = "scratch-map-" + VERSION;
 const FILES = [
   "./",
@@ -13,6 +13,8 @@ const FILES = [
   "./icons/maskable-512.png",
   "./icons/apple-touch-icon.png",
   "./icons/favicon-32.png",
+  "./firebase-config.js",
+  "./firebase-sdk.js",
 ];
 
 // First visit: download and store all the app's files
