@@ -2,7 +2,7 @@
 //
 // IMPORTANT when you publish a new version: change VERSION below (e.g. to "v2", "v3"...).
 // That's how installed copies notice there's an update.
-const VERSION = "v2";
+const VERSION = "v3";
 const CACHE = "scratch-map-" + VERSION;
 const FILES = [
   "./",

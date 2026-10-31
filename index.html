@@ -378,6 +378,13 @@
     background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
   }
   .sheet .sync-state { font-weight: 600; }
+  .pw-wrap { position: relative; display: block; margin-top: 6px; }
+  .pw-wrap input { margin-top: 0; padding-right: 46px; }
+  .pw-eye {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    border: none; background: none; font-size: 18px; width: 40px; height: 36px; border-radius: 8px;
+  }
+  .pw-eye:hover { background: var(--surface); }
   .menu .menu-note { color: var(--muted); font-size: 12px; padding: 8px 12px 4px; border-top: 1px solid var(--border); margin-top: 4px; }
 
   @media (prefers-reduced-motion: reduce) {
@@ -1460,7 +1467,8 @@
   //    whichever change is newer wins. So nothing is lost, even if you edited
   //    on two devices while offline.
   // =====================================================
-  const SYNC = { auth: null, db: null, user: null, unsub: null, pushTimer: null, status: "off", detail: "", lastSync: null, sdkFailed: false };
+  const SYNC = { auth: null, db: null, user: null, unsub: null, pushTimer: null, status: "off", detail: "", lastSync: null, sdkFailed: false,
+                 mode: "signin", draftEmail: "" }; // mode: "signin" or "create" (which form the sync sheet shows)
 
   function changedAt(rec) { return rec ? (rec.updated || rec.added || 0) : -1; }
 
@@ -1636,17 +1644,33 @@
       html = `<h2>☁️ Sync</h2>
         <p class="hint">Couldn't load sync right now. Check your internet connection and reopen the app.</p>`;
     } else if (!SYNC.user) {
-      html = `<h2>☁️ Sync your map</h2>
+      const creating = SYNC.mode === "create";
+      // A password box with a 👁 button that shows or hides what you typed
+      const pwField = (id, label, autocomplete, placeholder = "") => `
+        <label>${label}
+          <span class="pw-wrap">
+            <input id="${id}" type="password" autocomplete="${autocomplete}" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${placeholder}">
+            <button type="button" class="pw-eye" data-eye="${id}" aria-label="Show password" title="Show password">👁</button>
+          </span>
+        </label>`;
+      html = creating ? `
+        <h2>☁️ Create your sync account</h2>
+        <p class="hint">You'll use this email and password to sign in on all your devices. The places on this device are uploaded to your new account.</p>
+        <label>Email<input id="syncEmail" type="email" autocomplete="username" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(SYNC.draftEmail)}"></label>
+        ${pwField("syncPass", "Password", "new-password", "At least 6 characters")}
+        ${pwField("syncPass2", "Confirm password", "new-password", "Type it again")}
+        <div class="d-actions"><button class="btn primary" id="syncCreate">Create account</button></div>
+        <p class="hint" id="syncMsg"></p>
+        <button class="link" id="syncMode">Already have an account? Sign in</button>` : `
+        <h2>☁️ Sync your map</h2>
         <p class="hint">Sign in with the same account on your PC and your iPhone, and your places stay the same on both.
         Anything already on this device is kept and combined with your account.</p>
-        <label>Email<input id="syncEmail" type="email" autocomplete="username" inputmode="email" autocapitalize="off"></label>
-        <label>Password<input id="syncPass" type="password" autocomplete="current-password" placeholder="At least 6 characters"></label>
-        <div class="d-actions">
-          <button class="btn primary" id="syncSignIn">Sign in</button>
-          <button class="btn" id="syncCreate">Create account</button>
-        </div>
+        <label>Email<input id="syncEmail" type="email" autocomplete="username" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(SYNC.draftEmail)}"></label>
+        ${pwField("syncPass", "Password", "current-password")}
+        <div class="d-actions"><button class="btn primary" id="syncSignIn">Sign in</button></div>
         <p class="hint" id="syncMsg"></p>
-        <button class="link" id="syncForgot">Forgot password?</button>`;
+        <button class="link" id="syncForgot">Forgot password?</button><br>
+        <button class="link" id="syncMode">New here? Create an account</button>`;
     } else {
       const icon = { synced: "✅", syncing: "🔄", pending: "🔄", offline: "📴", error: "⚠️" }[SYNC.status] || "☁️";
       html = `<h2>☁️ Sync is on</h2>
@@ -1670,11 +1694,43 @@
       catch (e) { msg(friendlyAuthError(e)); }
     };
     if ($("syncCreate")) $("syncCreate").onclick = async () => {
+      const [email, pass] = creds();
+      if (!email) { msg("Please enter your email."); return; }
+      if (pass.length < 6) { msg("Please use a password with at least 6 characters."); return; }
+      if (pass !== $("syncPass2").value) {
+        msg("The two passwords don't match. Please type them again.");
+        $("syncPass").value = ""; $("syncPass2").value = ""; $("syncPass").focus();
+        return;
+      }
       msg("Creating your account…");
-      try { await SYNC.auth.createUserWithEmailAndPassword(...creds()); showToast("☁️ Account created: your map is now synced"); }
-      catch (e) { msg(friendlyAuthError(e)); }
+      try {
+        await SYNC.auth.createUserWithEmailAndPassword(email, pass);
+        SYNC.mode = "signin";
+        showToast("☁️ Account created: your map is now synced");
+      } catch (e) { msg(friendlyAuthError(e)); }
     };
-    if ($("syncPass")) $("syncPass").addEventListener("keydown", e => { if (e.key === "Enter") $("syncSignIn").click(); });
+    // Switch between "Sign in" and "Create account", keeping the email you typed
+    if ($("syncMode")) $("syncMode").onclick = () => {
+      SYNC.draftEmail = $("syncEmail").value.trim();
+      SYNC.mode = SYNC.mode === "create" ? "signin" : "create";
+      renderSyncSheet();
+      $(SYNC.draftEmail ? "syncPass" : "syncEmail").focus();
+    };
+    // 👁 buttons: show or hide the password
+    body.querySelectorAll("[data-eye]").forEach(btn => btn.onclick = () => {
+      const input = $(btn.dataset.eye);
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      btn.textContent = show ? "🙈" : "👁";
+      btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
+      btn.title = btn.getAttribute("aria-label");
+    });
+    // Pressing Enter moves to the next box, or submits
+    if ($("syncPass")) $("syncPass").addEventListener("keydown", e => {
+      if (e.key !== "Enter") return;
+      if ($("syncPass2")) $("syncPass2").focus(); else $("syncSignIn").click();
+    });
+    if ($("syncPass2")) $("syncPass2").addEventListener("keydown", e => { if (e.key === "Enter") $("syncCreate").click(); });
     if ($("syncForgot")) $("syncForgot").onclick = async () => {
       const email = $("syncEmail").value.trim();
       if (!email) { msg("Type your email above first, then tap “Forgot password?”."); return; }
